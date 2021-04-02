@@ -5,7 +5,7 @@ from torch.utils.data.dataset import Dataset
 import numpy as np
 
 
-class CustomDataSet(Dataset):
+class Datakiller(Dataset):
     def __init__(self, data_path, img_path, img_filename, label_filename, transform=None):
         self.img_path = os.path.join(data_path, img_path)
         self.transform = transform
