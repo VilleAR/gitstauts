@@ -26,7 +26,7 @@ USE_L1=False
 USE_L2=False
 LOG_INTERVAL=3
 lambda1, lambda2=1e-6, 0.001
-DATA_PATH = ''
+DATA_PATH = '../'
 TRAIN_DATA = 'train'
 TEST_DATA = 'test'
 TRAIN_IMG_FILE = 'imstrain.txt'
@@ -122,7 +122,8 @@ def validate():
         for data, target in val_loader:
             data, target=data.to(device), target.to(device)
             output=model(data)
-            val_loss+=loss_function(output, target).item()
+            loss=loss_function(output, target.float())
+            val_loss+=loss
             for i, a in enumerate(output):
                 if int(a)==int(target[i]):
                     correct+=1
