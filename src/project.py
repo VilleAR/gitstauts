@@ -27,6 +27,8 @@ USE_L2=False
 LOG_INTERVAL=1e99
 lambda1, lambda2=1e-6, 0.001
 
+
+
 def wrangling():
     directory=r'images'
     imgs=[]
