@@ -12,6 +12,8 @@ import torch.optim as optim
 import numpy as np 
 import random
 import pandas as pd 
+from torch.autograd import Variable
+
 from PIL import Image 
 
 #-----HYPERPARAMETERS
@@ -19,12 +21,12 @@ input_dim=16384 #128*128
 hidden_dim=128
 output_dim=14
 NUM_CLASSES=14
-BATCH_SIZE_TRAIN=1500
-BATCH_SIZE_VAL=1000
-N_EPOCHS=3
+BATCH_SIZE_TRAIN=1000
+BATCH_SIZE_VAL=100
+N_EPOCHS=7
 USE_L1=False
 USE_L2=False
-LOG_INTERVAL=3
+LOG_INTERVAL=5
 lambda1, lambda2=1e-6, 0.001
 DATA_PATH = '../'
 TRAIN_DATA = 'train'
@@ -37,12 +39,12 @@ TEST_LABEL_FILE = 'labelsval.txt'
 
 def wrangling():
     trans=transforms.Compose([
-                                        transforms.Resize(128),
-                                        transforms.RandomHorizontalFlip(0.5),
+                                        #transforms.Resize(128),
+                                        #transforms.RandomHorizontalFlip(0.5),
                                         transforms.ToTensor()                                     
     ])
-    dset_train=datakiller.Datakiller(DATA_PATH, TRAIN_DATA, TRAIN_IMG_FILE, TRAIN_LABEL_FILE, trans)
-    dset_test = datakiller.Datakiller(
+    dset_train=Datakiller.Datakiller(DATA_PATH, TRAIN_DATA, TRAIN_IMG_FILE, TRAIN_LABEL_FILE, trans)
+    dset_test = Datakiller.Datakiller(
     DATA_PATH, TEST_DATA, TEST_IMG_FILE, TEST_LABEL_FILE, trans)
 
     return dset_train, dset_test
@@ -69,6 +71,7 @@ class CNN(nn.Module):
         x = self.bn1(x)
         x = self.relu1(x)
         x = self.pool(x)
+        x = F.dropout(x)
         x = self.conv2(x)
         x = self.relu2(x)
         x = self.conv3(x)
@@ -77,13 +80,14 @@ class CNN(nn.Module):
         x = x.view(-1, 32*64*64)
         #x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
         x = self.fc(x)
-        
-        return self.sig(x) #softmax OUT!!!!
+        x = self.sig(x)
+        return x 
 
     #--- set up --#
 
     #TRAINING!!!!!!!!!!!!!
 def train(epoch):
+    
     model.train()
     
     for batch_num, (data, target) in enumerate(train_loader):       
@@ -117,22 +121,30 @@ def validate():
     model.eval()
     val_loss=0
     correct=0
-    
+    z=5
     with torch.no_grad():
         for data, target in val_loader:
             data, target=data.to(device), target.to(device)
             output=model(data)
             loss=loss_function(output, target.float())
             val_loss+=loss
-            for i, a in enumerate(output):
-                if int(a)==int(target[i]):
-                    correct+=1
-        val_loss/=len(val_loader.dataset) 
+            correct=0
+            #print(target)
+            i=0
+            while i<BATCH_SIZE_VAL:
+                j=0
+                while j<14:                
+                    q=round(output[i][j].item())
+                    if q==target[i][j].item():
+                        correct+=1
+                    j+=1
+                i+=1
+        val_loss/=len(val_loader.dataset)
         val_losses.append(val_loss)
         acc=correct/len(val_loader.dataset)
         print('\nValidation set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             val_loss, correct, len(val_loader.dataset),
-            100. * correct / len(val_loader.dataset)))
+            100. * correct / 5000))
         return acc
 if __name__ == '__main__':  
     #------DATA WRANGLING
@@ -149,7 +161,7 @@ if __name__ == '__main__':
     model = CNN().to(device)
 
     #Optimizers!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!????????????!!!!!!!!!!!!!!!!!
-    optimizer=optim.Adam(model.parameters())
+    optimizer=optim.Adam(model.parameters(), 1e-4)
     loss_function=nn.BCELoss()
     #Train in main!!!!!!!!
     prev=0
