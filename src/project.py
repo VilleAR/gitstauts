@@ -41,7 +41,7 @@ KERNEL_SIZE=3
 def wrangling():
     trans=transforms.Compose([
                                         #transforms.Resize(128),
-                                        transforms.RandomHorizontalFlip(0.5),
+                                        #transforms.RandomHorizontalFlip(0.5),
                                         #transforms.RandomVerticalFlip(0.5),
                                         transforms.ToTensor()                                     
     ])
@@ -72,7 +72,8 @@ def f1_loss(y_true:torch.Tensor, y_pred:torch.Tensor, is_training=False) -> torc
     
     f1 = 2* (precision*recall) / (precision + recall + epsilon)
     f1.requires_grad = is_training
-    return f1
+    acc=(tp+tn)/(tp+tn+fp+fn)
+    return f1, acc
 
     #--- model ---
 class CNN(nn.Module):
@@ -147,9 +148,10 @@ def validate():
     correct=0
     z=5
     with torch.no_grad():
+        epoch_total_f1=0
+        epoch_total_acc=0
         for data, target in val_loader:
-            groups=len(val_loader)
-            epoch_total_f1=0
+            groups=len(val_loader)           
             data, target=data.to(device), target.to(device)
             output=model(data)
             loss=loss_function(output, target.float())
@@ -161,11 +163,15 @@ def validate():
             sig=nn.Sigmoid()
             f1scoreout=sig(output)
             l=len(output)
+            acc=0
             while i<l:
-                f1+=f1_loss(f1scoreout[i],target[i])         
+                f1l, a= f1_loss(f1scoreout[i],target[i])         
+                f1+=f1l
+                acc+=a
                 i-=-1  
             #print("F1 score:", f1/l)
             epoch_total_f1+=(f1/l)
+            epoch_total_acc+=(acc/l)
         val_loss/=len(val_loader.dataset)
         val_losses.append(val_loss)
         acc=correct/len(val_loader.dataset)
@@ -173,6 +179,9 @@ def validate():
             val_loss, correct, len(val_loader.dataset),
             100. * correct / 2493))
         print("Average F1 for the epoch: ", epoch_total_f1/groups)
+        print("Average accuracy for the epoch: ", epoch_total_acc/groups)
+        print("**************************************************")
+        print("\n")
         return acc
 
 def seed_worker(worker_id):
