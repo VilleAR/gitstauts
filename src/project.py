@@ -13,7 +13,7 @@ import numpy as np
 import random
 import pandas as pd 
 from torch.autograd import Variable
-
+import matplotlib.pyplot as plt 
 from PIL import Image 
 
 #-----HYPERPARAMETERS
@@ -23,7 +23,7 @@ output_dim=14
 NUM_CLASSES=14
 BATCH_SIZE_TRAIN=300
 BATCH_SIZE_VAL=250
-N_EPOCHS=20
+N_EPOCHS=12
 USE_L1=False
 USE_L2=False
 LOG_INTERVAL=5
@@ -51,7 +51,7 @@ def wrangling():
 
     return dset_train, dset_test
 
-def f1_loss(y_true:torch.Tensor, y_pred:torch.Tensor, is_training=False) -> torch.Tensor:
+def f1_loss(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
 
     assert y_true.ndim == 1
     assert y_pred.ndim == 1 or y_pred.ndim == 2
@@ -182,7 +182,7 @@ def validate():
         print("Average accuracy for the epoch: ", epoch_total_acc/groups)
         print("**************************************************")
         print("\n")
-        return acc
+        return (epoch_total_f1/groups), (epoch_total_acc/groups)
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -203,8 +203,7 @@ if __name__ == '__main__':
         device = torch.device('cpu')
     model = CNN().to(device)
 
-    #Optimizers!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!????????????!!!!!!!!!!!!!!!!!
-    optimizer=optim.Adam(model.parameters(), 1e-4)
+    #Optimizers!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!????????????!!!!!!!!!!!!!!!!! 
     pos_weight=torch.ones([14])
     trainsize=7683
     sizes=[95, 360, 319, 1095, 448, 3227, 761, 2979, 598, 6403, 3121, 120, 173, 525]
@@ -214,18 +213,42 @@ if __name__ == '__main__':
     pos_weights=torch.ones([14])
     for a, i in enumerate(pos_weights):
         pos_weights[a]=i*(trainsize-news[a])/news[a]
+    optimizer=optim.RMSprop(params=model.parameters(),lr=0.001, alpha=0.9)
     loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
     #Train in main!!!!!!!!
     prev=0
     count=0
     bestac=0
+    bestf=0
     bestepoch=0
     acccs=[]
+    f1s=[]
     for e in range(1, N_EPOCHS+1):
         train_losses = []
         train_counter = []
         val_losses=[]
         train(e)
-        validate()
+        acc, f1=validate()
+        acccs.append(acc)
+        f1s.append(f1)
+        if f1>bestf:
+            torch.save(model.state_dict(), "checkpoint.pt")
+            bestf=f1
+            bestac=acc
+            bestepoch=e
         #acc=validate()   
         #acccs.append(acc)
+    
+    print("Best epoch at epoch: ", bestepoch)
+    print("F1 at best epoch: ",bestf, "Accuracy at best epoch: ", bestac)
+    cp=torch.load("checkpoint.pt")
+    model.load_state_dict(cp)
+    validate()
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.plot(acccs)
+    plt.savefig("accuracies")
+    plt.ylabel('F1Score')
+    plt.xlabel('Epoch')
+    plt.plot(f1s)
+    plt.savefig("f1Scores")
