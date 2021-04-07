@@ -21,9 +21,9 @@ input_dim=16384 #128*128
 hidden_dim=128
 output_dim=14
 NUM_CLASSES=14
-BATCH_SIZE_TRAIN=1000
-BATCH_SIZE_VAL=100
-N_EPOCHS=7
+BATCH_SIZE_TRAIN=300
+BATCH_SIZE_VAL=250
+N_EPOCHS=20
 USE_L1=False
 USE_L2=False
 LOG_INTERVAL=5
@@ -36,6 +36,7 @@ TEST_IMG_FILE = 'imsval.txt'
 TRAIN_LABEL_FILE = 'labelstrain.txt'
 TEST_LABEL_FILE = 'labelsval.txt'
 KERNEL_SIZE=3
+
 
 def wrangling():
     trans=transforms.Compose([
@@ -50,6 +51,28 @@ def wrangling():
 
     return dset_train, dset_test
 
+def f1_loss(y_true:torch.Tensor, y_pred:torch.Tensor, is_training=False) -> torch.Tensor:
+
+    assert y_true.ndim == 1
+    assert y_pred.ndim == 1 or y_pred.ndim == 2
+    
+    if y_pred.ndim == 2:
+        y_pred = y_pred.argmax(dim=1)
+        
+    
+    tp = (y_true * y_pred).sum().to(torch.float32)
+    tn = ((1 - y_true) * (1 - y_pred)).sum().to(torch.float32)
+    fp = ((1 - y_true) * y_pred).sum().to(torch.float32)
+    fn = (y_true * (1 - y_pred)).sum().to(torch.float32)
+    
+    epsilon = 1e-12
+    
+    precision = tp / (tp + fp + epsilon)
+    recall = tp / (tp + fn + epsilon)
+    
+    f1 = 2* (precision*recall) / (precision + recall + epsilon)
+    f1.requires_grad = is_training
+    return f1
 
     #--- model ---
 class CNN(nn.Module):
@@ -125,6 +148,8 @@ def validate():
     z=5
     with torch.no_grad():
         for data, target in val_loader:
+            groups=len(val_loader)
+            epoch_total_f1=0
             data, target=data.to(device), target.to(device)
             output=model(data)
             loss=loss_function(output, target.float())
@@ -132,27 +157,35 @@ def validate():
             correct=0
             #print(target)
             i=0
-            while i<BATCH_SIZE_VAL:
-                j=0
-                while j<14:                
-                    q=round(output[i][j].item())
-                    if q==target[i][j].item():
-                        correct+=1
-                    j+=1
-                i+=1
+            f1=0
+            sig=nn.Sigmoid()
+            f1scoreout=sig(output)
+            l=len(output)
+            while i<l:
+                f1+=f1_loss(f1scoreout[i],target[i])         
+                i-=-1  
+            #print("F1 score:", f1/l)
+            epoch_total_f1+=(f1/l)
         val_loss/=len(val_loader.dataset)
         val_losses.append(val_loss)
         acc=correct/len(val_loader.dataset)
         print('\nValidation set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             val_loss, correct, len(val_loader.dataset),
-            100. * correct / 5000))
+            100. * correct / 2493))
+        print("Average F1 for the epoch: ", epoch_total_f1/groups)
         return acc
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    numpy.random.seed(worker_seed)
+    random.seed(worker_seed)
+
 if __name__ == '__main__':  
     #------DATA WRANGLING
 
     #dataset = ImageFolder('../data/alldata', transform=train_transform)
     dstrain, dsval = wrangling()
-    train_loader = torch.utils.data.DataLoader(dataset=dstrain, batch_size=BATCH_SIZE_TRAIN, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(dataset=dstrain, batch_size=BATCH_SIZE_TRAIN, shuffle=True, worker_init_fn=seed_worker)
     val_loader=torch.utils.data.DataLoader(dataset=dsval, batch_size=BATCH_SIZE_VAL, shuffle=False)
 
     if torch.cuda.is_available():
@@ -163,7 +196,16 @@ if __name__ == '__main__':
 
     #Optimizers!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!????????????!!!!!!!!!!!!!!!!!
     optimizer=optim.Adam(model.parameters(), 1e-4)
-    loss_function=nn.BCEWithLogitsLoss()
+    pos_weight=torch.ones([14])
+    trainsize=7683
+    sizes=[95, 360, 319, 1095, 448, 3227, 761, 2979, 598, 6403, 3121, 120, 173, 525]
+    news=[]
+    for s in sizes:
+        news.append(s*0.7683)
+    pos_weights=torch.ones([14])
+    for a, i in enumerate(pos_weights):
+        pos_weights[a]=i*(trainsize-news[a])/news[a]
+    loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
     #Train in main!!!!!!!!
     prev=0
     count=0

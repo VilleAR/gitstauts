@@ -16,8 +16,13 @@ import pandas as pd
 from PIL import Image 
 
 
-
-for i in range(1,10):
-    print(i,'times',10-i)
-    print(i*(10-i))
-
+trainsize=7683
+sizes=[95, 360, 319, 1095, 448, 3227, 761, 2979, 598, 6403, 3121, 120, 173, 525]
+news=[]
+for s in sizes:
+    news.append(s*0.7683)
+pos_weights=torch.ones([14])
+for a, i in enumerate(pos_weights):
+    pos_weights[a]=i*(trainsize-news[a])/news[a]
+    
+print(pos_weights)
