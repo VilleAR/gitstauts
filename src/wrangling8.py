@@ -4,14 +4,14 @@ import re as re
 
 
 
-directory=r'../test'
+#directory=r'../test'
 ims=[]
-with open('gex2.txt') as f:
+with open('gex1.txt') as f:
     lines=f.readlines()
     for l in lines:
         ims.append(str(l))
-t=directory+'/'
-
+#t=directory+'/'
+with open ('')
 for name in ims:
     target=t+name
     target=target.replace('\n','')

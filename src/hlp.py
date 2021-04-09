@@ -25,4 +25,11 @@ pos_weights=torch.ones([14])
 for a, i in enumerate(pos_weights):
     pos_weights[a]=i*(trainsize-news[a])/news[a]
     
-print(pos_weights)
+#print(pos_weights)
+y_pred=torch.FloatTensor([0.0964, 0.1199, 0.1239, 0.2484, 0.0867, 0.8025, 0.1159, 0.6833, 0.1477,
+        1.0000, 0.7569, 0.1075, 0.0876, 0.1580])
+y_true=torch.FloatTensor([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0])
+tp = (y_true * y_pred).sum().to(torch.float32)
+print(y_pred)
+print(y_true)
+print(tp)

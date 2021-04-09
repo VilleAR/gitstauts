@@ -16,6 +16,7 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt 
 from PIL import Image 
 
+
 #-----HYPERPARAMETERS
 input_dim=16384 #128*128
 hidden_dim=128
@@ -23,9 +24,9 @@ output_dim=14
 NUM_CLASSES=14
 BATCH_SIZE_TRAIN=300
 BATCH_SIZE_VAL=250
-N_EPOCHS=12
-USE_L1=False
-USE_L2=False
+N_EPOCHS=5
+USE_L1=True
+USE_L2=True
 LOG_INTERVAL=5
 lambda1, lambda2=1e-6, 0.001
 DATA_PATH = '../'
@@ -41,25 +42,26 @@ KERNEL_SIZE=3
 def wrangling():
     trans=transforms.Compose([
                                         #transforms.Resize(128),
-                                        #transforms.RandomHorizontalFlip(0.5),
-                                        #transforms.RandomVerticalFlip(0.5),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.RandomVerticalFlip(),
                                         transforms.ToTensor()                                     
     ])
-    dset_train=Datakiller.Datakiller(DATA_PATH, TRAIN_DATA, TRAIN_IMG_FILE, TRAIN_LABEL_FILE, trans)
+    trans2=transforms.Compose([
+                                        transforms.ToTensor()
+    ])
+    dset_train = Datakiller.Datakiller(DATA_PATH, TRAIN_DATA, TRAIN_IMG_FILE, TRAIN_LABEL_FILE, trans)
     dset_test = Datakiller.Datakiller(
-    DATA_PATH, TEST_DATA, TEST_IMG_FILE, TEST_LABEL_FILE, trans)
+    DATA_PATH, TEST_DATA, TEST_IMG_FILE, TEST_LABEL_FILE, trans2)
 
     return dset_train, dset_test
 
-def f1_loss(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
+def f1_score(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
 
     assert y_true.ndim == 1
     assert y_pred.ndim == 1 or y_pred.ndim == 2
-    
     if y_pred.ndim == 2:
         y_pred = y_pred.argmax(dim=1)
-        
-    
+
     tp = (y_true * y_pred).sum().to(torch.float32)
     tn = ((1 - y_true) * (1 - y_pred)).sum().to(torch.float32)
     fp = ((1 - y_true) * y_pred).sum().to(torch.float32)
@@ -75,7 +77,26 @@ def f1_loss(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torc
     acc=(tp+tn)/(tp+tn+fp+fn)
     return f1, acc
 
-    #--- model ---
+def loss_for_f1(y_pred, y_true):
+
+    y_pred = F.softmax(y_pred, dim = 1)
+
+    tp = (y_true * y_pred).sum().to(torch.float32)
+    tn = ((1 - y_true) * (1 - y_pred)).sum().to(torch.float32)
+    fp = ((1 - y_true) * y_pred).sum().to(torch.float32)
+    fn = (y_true * (1 - y_pred)).sum().to(torch.float32)
+
+    epsilon = 1e-12
+
+    precision = tp / (tp + fp + epsilon)
+    recall = tp / (tp + fn + epsilon)
+
+    f1 = 2 * precision * recall / (precision + recall + epsilon)
+
+    return 1 - torch.mean(f1)
+    
+
+#--- model ---
 class CNN(nn.Module):
     def __init__(self, num_classes=NUM_CLASSES):
         super(CNN, self).__init__()
@@ -98,10 +119,11 @@ class CNN(nn.Module):
         x = self.pool(x)
         x = F.dropout(x)
         #x = self.conv2(x)
-        x = self.relu2(x)
+        #x = self.relu2(x)
         x = self.conv3(x)
         x = self.bn3(x)
         x = self.relu3(x)
+        
         x = x.view(-1, 32*64*64)
         #x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
         x = self.fc(x)
@@ -118,17 +140,20 @@ def train(epoch):
     for batch_num, (data, target) in enumerate(train_loader):       
         data, target = data.to(device), target.to(device)        
         output = model(data)
-        loss = loss_function(output, target.float())
-        train_losses.append(loss.item())
+        #loss = loss_function(output, target.float())
+        loss=loss_for_f1(output, target.float())
+        #loss=f1_weighted(output, target.float())
+        #train_losses.append(loss.item())
+        train_losses.append(loss)
         train_counter.append((batch_num*100)+((epoch-1)*len(train_loader.dataset)))
         l1_reg = 0.0
         l2_reg = 0.0            
         optimizer.zero_grad()
-        '''
+        
         for p in model.parameters(): 
             l1_reg+=lambda1*torch.norm(p,1)
             l2_reg+= lambda2 * torch.norm(p, 2)**2
-        '''
+        
         if USE_L1:
             loss+=l1_reg
         if USE_L2:
@@ -165,7 +190,7 @@ def validate():
             l=len(output)
             acc=0
             while i<l:
-                f1l, a= f1_loss(f1scoreout[i],target[i])         
+                f1l, a= f1_score(f1scoreout[i],target[i])         
                 f1+=f1l
                 acc+=a
                 i-=-1  
@@ -186,7 +211,7 @@ def validate():
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
-    numpy.random.seed(worker_seed)
+    np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 if __name__ == '__main__':  
@@ -213,8 +238,12 @@ if __name__ == '__main__':
     pos_weights=torch.ones([14])
     for a, i in enumerate(pos_weights):
         pos_weights[a]=i*(trainsize-news[a])/news[a]
-    optimizer=optim.RMSprop(params=model.parameters(),lr=0.001, alpha=0.9)
+    #optimizer=optim.AdamW(model.parameters())
+    optimizer=optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    #optimizer=optim.Adadelta(model.parameters())
+    #optimizer=optim.RMSprop(model.parameters(), alpha=0.9, lr=0.001)
     loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
+    
     #Train in main!!!!!!!!
     prev=0
     count=0
@@ -228,7 +257,7 @@ if __name__ == '__main__':
         train_counter = []
         val_losses=[]
         train(e)
-        acc, f1=validate()
+        f1, acc=validate()
         acccs.append(acc)
         f1s.append(f1)
         if f1>bestf:
@@ -243,12 +272,17 @@ if __name__ == '__main__':
     print("F1 at best epoch: ",bestf, "Accuracy at best epoch: ", bestac)
     cp=torch.load("checkpoint.pt")
     model.load_state_dict(cp)
-    validate()
+    #validate()
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
     plt.plot(acccs)
     plt.savefig("accuracies")
+    plt.clf()
     plt.ylabel('F1Score')
     plt.xlabel('Epoch')
     plt.plot(f1s)
     plt.savefig("f1Scores")
+    plt.ylabel('Accuracy and F1')
+    plt.xlabel('Epoch')
+    plt.plot(acccs)
+    plt.savefig('accandf1')
