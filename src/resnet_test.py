@@ -95,7 +95,7 @@ def f1_loss(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torc
     return f1, acc
 
 
-def loss_for_f1(y_true, y_pred):
+def loss_for_f1(y_pred, y_true):
 
     y_pred = F.softmax(y_pred, dim = 1)
 
@@ -165,6 +165,7 @@ def train(epoch):
         loss = loss_function(output, target.float())
         #loss=loss_for_f1(output, target.float())
         train_losses.append(loss.item())
+        #train_losses.append(loss)
         train_counter.append((batch_num*100)+((epoch-1)*len(train_loader.dataset)))
         l1_reg = 0.0
         l2_reg = 0.0            
@@ -270,8 +271,8 @@ if __name__ == '__main__':
     pos_weights=torch.ones([14])
     for a, i in enumerate(pos_weights):
         pos_weights[a]=i*(trainsize-news[a])/news[a]
-    loss_function=nn.BCEWithLogitsLoss()
-    #loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
+    #loss_function=nn.BCEWithLogitsLoss()
+    loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
     #loss_function = loss_for_f1
     #Train in main!!!!!!!!
     prev=0
