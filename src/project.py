@@ -15,7 +15,7 @@ import pandas as pd
 from torch.autograd import Variable
 import matplotlib.pyplot as plt 
 from PIL import Image 
-
+from sklearn.metrics import f1_score
 
 #-----HYPERPARAMETERS
 input_dim=16384 #128*128
@@ -55,7 +55,7 @@ def wrangling():
 
     return dset_train, dset_test
 
-def f1_score(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
+def f1_home(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
 
     assert y_true.ndim == 1
     assert y_pred.ndim == 1 or y_pred.ndim == 2
@@ -175,6 +175,7 @@ def validate():
     with torch.no_grad():
         epoch_total_f1=0
         epoch_total_acc=0
+        epoch_skf1=0
         for data, target in val_loader:
             groups=len(val_loader)           
             data, target=data.to(device), target.to(device)
@@ -185,17 +186,21 @@ def validate():
             #print(target)
             i=0
             f1=0
+            skf1=0
             sig=nn.Sigmoid()
             f1scoreout=sig(output)
             l=len(output)
             acc=0
             while i<l:
-                f1l, a= f1_score(f1scoreout[i],target[i])         
+                f1l, a= f1_home(f1scoreout[i],target[i])         
                 f1+=f1l
+                sk=f1_score(target[i].cpu(), f1scoreout[i].round().cpu(), average='weighted')
+                skf1+=sk
                 acc+=a
                 i-=-1  
             #print("F1 score:", f1/l)
             epoch_total_f1+=(f1/l)
+            epoch_skf1+=(skf1/l)
             epoch_total_acc+=(acc/l)
         val_loss/=len(val_loader.dataset)
         val_losses.append(val_loss)
@@ -203,7 +208,8 @@ def validate():
         print('\nValidation set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             val_loss, correct, len(val_loader.dataset),
             100. * correct / 2493))
-        print("Average F1 for the epoch: ", epoch_total_f1/groups)
+        print("Average Weighted F1 for the epoch: ", epoch_skf1/groups)
+        print("Average home-made F1 for the epoch: ", epoch_total_f1/groups)
         print("Average accuracy for the epoch: ", epoch_total_acc/groups)
         print("**************************************************")
         print("\n")
