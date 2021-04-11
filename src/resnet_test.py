@@ -15,6 +15,7 @@ import random
 import pandas as pd 
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
+from sklearn.metrics import f1_score
 
 from PIL import Image 
 
@@ -40,11 +41,11 @@ LOG_INTERVAL=5
 lambda1, lambda2=1e-5, 0.001
 DATA_PATH = '../'
 TRAIN_DATA = 'train'
-TEST_DATA = 'test'
+VAL_DATA = 'test'
 TRAIN_IMG_FILE = 'imstrain.txt'
-TEST_IMG_FILE = 'imsval.txt'
+VAL_IMG_FILE = 'imsval.txt'
 TRAIN_LABEL_FILE = 'labelstrain.txt'
-TEST_LABEL_FILE = 'labelsval.txt'
+VAL_LABEL_FILE = 'labelsval.txt'
 KERNEL_SIZE=3
 
 
@@ -66,11 +67,11 @@ def wrangling():
                  
     dset_train=Datakiller.Datakiller(DATA_PATH, TRAIN_DATA, TRAIN_IMG_FILE, TRAIN_LABEL_FILE, trans_train)
     dset_val = Datakiller.Datakiller(
-    DATA_PATH, TEST_DATA, TEST_IMG_FILE, TEST_LABEL_FILE, trans_val)
+    DATA_PATH, VAL_DATA, VAL_IMG_FILE, VAL_LABEL_FILE, trans_val)
 
     return dset_train, dset_val
 
-def f1_loss(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
+def f1_home(y_pred:torch.Tensor, y_true:torch.Tensor, is_training=False) -> torch.Tensor:
 
     assert y_true.ndim == 1
     assert y_pred.ndim == 1 or y_pred.ndim == 2
@@ -199,6 +200,9 @@ def validate():
     with torch.no_grad():
         epoch_total_f1=0
         epoch_total_acc=0
+        epoch_skf1=0
+        skf1s=[]
+        ewf1=0
         for data, target in val_loader:
             groups=len(val_loader)           
             data, target=data.to(device), target.to(device)
@@ -209,17 +213,21 @@ def validate():
             #print(target)
             i=0
             f1=0
+            skf1=0
             sig=nn.Sigmoid()
             f1scoreout=sig(output)
             l=len(output)
             acc=0
             while i<l:
-                f1l, a= f1_loss(f1scoreout[i],target[i])         
+                f1l, a= f1_home(f1scoreout[i],target[i])         
                 f1+=f1l
+                sk=f1_score(target[i].cpu(), f1scoreout[i].round().cpu(), average='weighted')
+                skf1+=sk
                 acc+=a
                 i-=-1  
             #print("F1 score:", f1/l)
             epoch_total_f1+=(f1/l)
+            epoch_skf1+=(skf1/l)
             epoch_total_acc+=(acc/l)
         val_loss/=len(val_loader.dataset)
         val_losses.append(val_loss)
@@ -227,12 +235,13 @@ def validate():
         print('\nValidation set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
             val_loss, correct, len(val_loader.dataset),
             100. * correct / 2493))
-        print("Average F1 for the epoch: ", epoch_total_f1/groups)
+        print("Average Weighted F1 for the epoch: ", epoch_skf1/groups)
+        print("Average home-made F1 for the epoch: ", epoch_total_f1/groups)
         print("Average accuracy for the epoch: ", epoch_total_acc/groups)
         print("**************************************************")
         print("\n")
    
-        return (epoch_total_f1/groups), (epoch_total_acc/groups)
+        return (epoch_total_f1/groups), (epoch_total_acc/groups), (skf1/groups)
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
@@ -260,8 +269,8 @@ if __name__ == '__main__':
     model = model_r.to(device)
 
     #Optimizers!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!????????????!!!!!!!!!!!!!!!!!
-    optimizer=optim.Adadelta(model.parameters())
-    
+    #optimizer=optim.Adadelta(model.parameters())
+    optimizer=optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
     pos_weight=torch.ones([14])
     trainsize=7683
     sizes=[95, 360, 319, 1095, 448, 3227, 761, 2979, 598, 6403, 3121, 120, 173, 525]
@@ -271,8 +280,8 @@ if __name__ == '__main__':
     pos_weights=torch.ones([14])
     for a, i in enumerate(pos_weights):
         pos_weights[a]=i*(trainsize-news[a])/news[a]
-    #loss_function=nn.BCEWithLogitsLoss()
-    loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
+    loss_function=nn.BCEWithLogitsLoss()
+    #loss_function=nn.BCEWithLogitsLoss(pos_weight=pos_weights.to(device))
     #loss_function = loss_for_f1
     #Train in main!!!!!!!!
     prev=0
@@ -282,28 +291,31 @@ if __name__ == '__main__':
     bestepoch=0
     acccs=[]
     f1s=[]
+    sks=[]
     for e in range(1, N_EPOCHS+1):
         train_losses = []
         train_counter = []
         val_losses=[]
         train(e)
-        acc, f1=validate()
+        acc, f1, sk=validate()
         acccs.append(acc)
         f1s.append(f1)
+        sks.append(sk)
         if f1>bestf:
-            torch.save(model.state_dict(), "checkpoint.pt")
+            torch.save(model.state_dict(), "checkpoint2sgd.pt")
             bestf=f1
             bestac=acc
             bestepoch=e
     
     print("Best epoch at epoch: ", bestepoch)
     print("F1 at best epoch: ",bestf, "Accuracy at best epoch: ", bestac)
-    cp=torch.load("checkpoint.pt")
+    cp=torch.load("checkpoint2sgd.pt")
     model.load_state_dict(cp)
     validate()
     plt.xlabel('Epoch')
     plt.plot(acccs)
     plt.plot(f1s)
-    plt.ylabel('F1Score and accuracies')
+    plt.plot(sks)
+    plt.ylabel('Weighted and non-weighted F1Score and accuracies')
     plt.xlabel('Epoch')
-    plt.savefig("f1_acc")
+    plt.savefig("Accuracies")
